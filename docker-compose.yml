@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: warranty
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  bot:
+    build: .
+    command: python -m app.bot.main
+    env_file: .env
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./:/app
+
+volumes:
+  pg_data:
