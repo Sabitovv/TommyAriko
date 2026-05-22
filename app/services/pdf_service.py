@@ -40,6 +40,7 @@ class PDFService:
     @staticmethod
     def _register_fonts() -> tuple[str, str]:
         candidates = [
+            (str(Path("assets/fonts/DejaVuSans.ttf").resolve()), str(Path("assets/fonts/DejaVuSans-Bold.ttf").resolve())),
             ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
             ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
         ]
@@ -72,7 +73,6 @@ class PDFService:
         c.drawString(56, height - 88, "Гарантийный талон")
         c.setFont(self.font_regular, 11)
         c.drawString(56, height - 108, "Wildberries Warranty Activation")
-        c.drawString(width - 190, height - 108, "[LOGO PLACEHOLDER]")
 
         c.setFillColor(colors.HexColor("#1C6EA4"))
         c.roundRect(36, height - 180, width - 72, 28, 8, stroke=0, fill=1)
@@ -113,10 +113,6 @@ class PDFService:
         c.setFont(self.font_regular, 9)
         c.drawString(50, 136, "Отсканируйте QR-код для сверки номера гарантийного талона.")
         c.drawImage(str(qr_path), width - 170, 92, width=100, height=100)
-
-        c.setFillColor(colors.HexColor("#475569"))
-        c.setFont(self.font_regular, 9)
-        c.drawString(50, 62, "Документ сформирован автоматически сервисом активации гарантии.")
 
         c.showPage()
         c.save()

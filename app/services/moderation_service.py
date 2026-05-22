@@ -1,4 +1,5 @@
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.types import FSInputFile
 
@@ -29,13 +30,30 @@ async def publish_application_for_moderation(bot: Bot, app: Application) -> None
         f"WB: {app.product.wb_link}\n"
         f"Исправлений: {app.corrections_count}"
     )
-    msg = await bot.send_photo(
-        chat_id=settings.admin_group_id,
-        message_thread_id=app.moderation_topic_id,
-        photo=app.screenshot_file_id,
-        caption=caption,
-        reply_markup=moderation_keyboard(app.id),
-    )
+    try:
+        msg = await bot.send_photo(
+            chat_id=settings.admin_group_id,
+            message_thread_id=app.moderation_topic_id,
+            photo=app.screenshot_file_id,
+            caption=caption,
+            reply_markup=moderation_keyboard(app.id),
+        )
+    except TelegramBadRequest as exc:
+        reason = (exc.message or "").lower()
+        if "thread" not in reason and "topic" not in reason:
+            raise
+        topic = await bot.create_forum_topic(
+            chat_id=settings.admin_group_id,
+            name=f"{app.user.username or 'user'}_{app.user.telegram_id}",
+        )
+        app.moderation_topic_id = topic.message_thread_id
+        msg = await bot.send_photo(
+            chat_id=settings.admin_group_id,
+            message_thread_id=app.moderation_topic_id,
+            photo=app.screenshot_file_id,
+            caption=caption,
+            reply_markup=moderation_keyboard(app.id),
+        )
     app.moderation_message_id = msg.message_id
 
 

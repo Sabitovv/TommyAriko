@@ -12,7 +12,8 @@ router = Router()
 
 
 @router.callback_query(F.data.startswith("mod:approve:"))
-async def approve(callback: CallbackQuery) -> None:
+async def approve(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     app_id = int(callback.data.split(":")[-1])
     async with SessionLocal() as db:
         repo = ApplicationRepository(db)
