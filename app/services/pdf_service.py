@@ -6,6 +6,8 @@ import calendar
 import qrcode
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from app.config import get_settings
@@ -18,6 +20,7 @@ class PDFService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.output_dir = self._resolve_output_dir(self.settings.pdf_output_dir)
+        self.font_regular, self.font_bold = self._register_fonts()
 
     @staticmethod
     def _resolve_output_dir(configured_path: str) -> Path:
@@ -34,6 +37,23 @@ class PDFService:
             )
             return fallback
 
+    @staticmethod
+    def _register_fonts() -> tuple[str, str]:
+        candidates = [
+            ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+            ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
+        ]
+        for regular_path, bold_path in candidates:
+            if Path(regular_path).exists() and Path(bold_path).exists():
+                try:
+                    pdfmetrics.registerFont(TTFont("DejaVuSans", regular_path))
+                    pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", bold_path))
+                    return "DejaVuSans", "DejaVuSans-Bold"
+                except Exception:
+                    continue
+        logger.warning("pdf_font_fallback", extra={"reason": "DejaVu fonts not found, using Helvetica"})
+        return "Helvetica", "Helvetica-Bold"
+
     def build_warranty_pdf(self, app: Application) -> str:
         file_path = self.output_dir / f"{app.number}.pdf"
         qr_path = self.output_dir / f"{app.number}_qr.png"
@@ -48,16 +68,16 @@ class PDFService:
         c.setFillColor(colors.HexColor("#123B5D"))
         c.roundRect(36, height - 140, width - 72, 92, 12, stroke=0, fill=1)
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 22)
+        c.setFont(self.font_bold, 22)
         c.drawString(56, height - 88, "Гарантийный талон")
-        c.setFont("Helvetica", 11)
+        c.setFont(self.font_regular, 11)
         c.drawString(56, height - 108, "Wildberries Warranty Activation")
         c.drawString(width - 190, height - 108, "[LOGO PLACEHOLDER]")
 
         c.setFillColor(colors.HexColor("#1C6EA4"))
         c.roundRect(36, height - 180, width - 72, 28, 8, stroke=0, fill=1)
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 12)
+        c.setFont(self.font_bold, 12)
         c.drawString(50, height - 171, f"Номер гарантии: {app.number}")
 
         activation_dt = datetime.now().replace(microsecond=0)
@@ -78,24 +98,24 @@ class PDFService:
         c.setFillColor(colors.HexColor("#0F172A"))
         for label, value in rows:
             c.setFillColor(colors.HexColor("#334155"))
-            c.setFont("Helvetica-Bold", 11)
+            c.setFont(self.font_bold, 11)
             c.drawString(50, y, f"{label}:")
             c.setFillColor(colors.HexColor("#0F172A"))
-            c.setFont("Helvetica", 11)
+            c.setFont(self.font_regular, 11)
             c.drawString(205, y, str(value))
             y -= 26
 
         c.setFillColor(colors.HexColor("#E7EFF7"))
         c.roundRect(36, 82, width - 72, 95, 10, stroke=0, fill=1)
         c.setFillColor(colors.HexColor("#0F172A"))
-        c.setFont("Helvetica", 10)
+        c.setFont(self.font_regular, 10)
         c.drawString(50, 152, "Проверка подлинности:")
-        c.setFont("Helvetica", 9)
+        c.setFont(self.font_regular, 9)
         c.drawString(50, 136, "Отсканируйте QR-код для сверки номера гарантийного талона.")
         c.drawImage(str(qr_path), width - 170, 92, width=100, height=100)
 
         c.setFillColor(colors.HexColor("#475569"))
-        c.setFont("Helvetica", 9)
+        c.setFont(self.font_regular, 9)
         c.drawString(50, 62, "Документ сформирован автоматически сервисом активации гарантии.")
 
         c.showPage()

@@ -433,6 +433,10 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await db.commit()
 
     await callback.message.answer(f"Заявка {app.number} отправлена на модерацию.")
+    await callback.message.answer(
+        "Если хотите, можете сразу начать новую активацию или написать в поддержку.",
+        reply_markup=start_keyboard(),
+    )
     await state.clear()
     await callback.answer()
 

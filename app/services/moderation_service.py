@@ -4,6 +4,7 @@ from aiogram.types import FSInputFile
 
 from app.config import get_settings
 from app.keyboards.common import moderation_keyboard
+from app.keyboards.common import start_keyboard
 from app.models.entities import Application
 from app.services.pdf_service import PDFService
 
@@ -42,6 +43,11 @@ async def send_approved(bot: Bot, app: Application) -> None:
     pdf_path = PDFService().build_warranty_pdf(app)
     await bot.send_message(app.user.telegram_id, "✅ Ваша гарантия успешно активирована.")
     await bot.send_document(app.user.telegram_id, document=FSInputFile(pdf_path))
+    await bot.send_message(
+        app.user.telegram_id,
+        "Можно начать новую активацию или задать вопрос в поддержку.",
+        reply_markup=start_keyboard(),
+    )
 
 
 async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
