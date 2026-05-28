@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -58,14 +60,18 @@ async def publish_application_for_moderation(bot: Bot, app: Application) -> None
 
 
 async def send_approved(bot: Bot, app: Application) -> None:
-    pdf_path = PDFService().build_warranty_pdf(app)
-    await bot.send_message(app.user.telegram_id, "✅ Ваша гарантия успешно активирована.")
-    await bot.send_document(app.user.telegram_id, document=FSInputFile(pdf_path))
-    await bot.send_message(
-        app.user.telegram_id,
-        "Можно начать новую активацию или задать вопрос в поддержку.",
-        reply_markup=start_keyboard(),
-    )
+    logger = logging.getLogger(__name__)
+    try:
+        pdf_path = PDFService().build_warranty_pdf(app)
+        await bot.send_message(app.user.telegram_id, "✅ Ваша гарантия успешно активирована.")
+        await bot.send_document(app.user.telegram_id, document=FSInputFile(pdf_path))
+        await bot.send_message(
+            app.user.telegram_id,
+            "Можно начать новую активацию или задать вопрос в поддержку.",
+            reply_markup=start_keyboard(),
+        )
+    except Exception:
+        logger.exception("send_approved_failed", extra={"app_id": app.id, "user_id": app.user.telegram_id if app.user else None})
 
 
 async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
