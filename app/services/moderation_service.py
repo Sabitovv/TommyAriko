@@ -73,19 +73,27 @@ async def send_approved(bot: Bot, app: Application) -> None:
 
 
 async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
-    await bot.send_message(user_telegram_id, f"❌ В активации гарантии отказано.\n\nПричина:\n{reason}")
+    logger = logging.getLogger(__name__)
+    try:
+        await bot.send_message(user_telegram_id, f"❌ В активации гарантии отказано.\n\nПричина:\n{reason}")
+    except Exception:
+        logger.exception("send_rejected_failed", extra={"user_id": user_telegram_id})
 
 
 async def send_to_correction(bot: Bot, user_telegram_id: int, comment: str) -> None:
-    await bot.send_message(
-        user_telegram_id,
-        f"Требуется уточнение по заявке.\n\nКомментарий администратора:\n{comment}",
-    )
-    await bot.send_message(
-        user_telegram_id,
-        "Выберите поле для исправления:",
-        reply_markup=edit_fields_keyboard(prefix="corr_edit"),
-    )
+    logger = logging.getLogger(__name__)
+    try:
+        await bot.send_message(
+            user_telegram_id,
+            f"Требуется уточнение по заявке.\n\nКомментарий администратора:\n{comment}",
+        )
+        await bot.send_message(
+            user_telegram_id,
+            "Выберите поле для исправления:",
+            reply_markup=edit_fields_keyboard(prefix="corr_edit"),
+        )
+    except Exception:
+        logger.exception("send_to_correction_failed", extra={"user_id": user_telegram_id})
 
 
 async def update_moderation_message(bot: Bot, app: Application, caption: str | None = None) -> None:

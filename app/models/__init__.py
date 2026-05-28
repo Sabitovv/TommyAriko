@@ -2,7 +2,6 @@ from app.models.base import Base
 from app.models.entities import (
     Admin,
     Application,
-    ApplicationCorrection,
     ApplicationStatus,
     Product,
     Session,
@@ -18,7 +17,6 @@ __all__ = [
     "Store",
     "Product",
     "Application",
-    "ApplicationCorrection",
     "SupportTopic",
     "SupportMessage",
     "Session",

@@ -11,7 +11,6 @@ class Settings(BaseSettings):
 
     bot_token: str = Field(alias="BOT_TOKEN")
     admin_group_id: int = Field(alias="ADMIN_GROUP_ID")
-    admin_forum_topic_id: int = Field(alias="ADMIN_FORUM_TOPIC_ID")
     database_url: str = Field(alias="DATABASE_URL")
     redis_url: str = Field(alias="REDIS_URL")
     app_env: str = Field(default="dev", alias="APP_ENV")
@@ -19,7 +18,6 @@ class Settings(BaseSettings):
     wb_stores_json: str = Field(alias="WB_STORES_JSON")
     pdf_output_dir: str = Field(alias="PDF_OUTPUT_DIR")
     media_output_dir: str = Field(alias="MEDIA_OUTPUT_DIR")
-    secret_key: str = Field(alias="SECRET_KEY")
 
     @property
     def wb_stores(self) -> list[dict[str, Any]]:

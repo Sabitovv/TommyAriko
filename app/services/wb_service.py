@@ -117,13 +117,4 @@ class WBService:
             unique.setdefault(key, p)
         return list(unique.values())
 
-    async def get_products_for_keyboard(self) -> list[dict]:
-        products = (
-            await self.db.scalars(
-                select(Product)
-                .where(Product.is_active.is_(True))
-                .order_by(Product.category, Product.name)
-            )
-        ).all()
-        dedup = await self.deduplicate_products(products)
-        return [{"id": p.id, "name": f"{p.category}: {p.name}"} for p in dedup]
+

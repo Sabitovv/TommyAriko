@@ -41,8 +41,11 @@ def build_scheduler(bot):
 
     @scheduler.scheduled_job("interval", minutes=30, next_run_time=datetime.now())
     async def sync_wb_products() -> None:
-        async with SessionLocal() as db:
-            total = await WBService(db).sync_products()
-            logger.info("wb_products_synced", extra={"count": total})
+        try:
+            async with SessionLocal() as db:
+                total = await WBService(db).sync_products()
+                logger.info("wb_products_synced", extra={"count": total})
+        except Exception:
+            logger.exception("wb_products_sync_failed")
 
     return scheduler

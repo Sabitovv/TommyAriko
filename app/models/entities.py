@@ -69,14 +69,6 @@ class Application(Base, TimestampMixin):
     product: Mapped[Product] = relationship()
 
 
-class ApplicationCorrection(Base, TimestampMixin):
-    __tablename__ = "application_corrections"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    application_id: Mapped[int] = mapped_column(ForeignKey("applications.id", ondelete="CASCADE"))
-    admin_telegram_id: Mapped[int] = mapped_column(BigInteger)
-    comment: Mapped[str] = mapped_column(Text)
-
-
 class SupportTopic(Base, TimestampMixin):
     __tablename__ = "support_topics"
     id: Mapped[int] = mapped_column(primary_key=True)

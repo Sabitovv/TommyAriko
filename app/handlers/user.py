@@ -6,6 +6,7 @@ from aiogram.filters import CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, ContentType, Message, ReplyKeyboardRemove
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.keyboards.common import (
     confirmation_keyboard,
@@ -94,6 +95,9 @@ async def step_full_name(message: Message, state: FSMContext) -> None:
 
 @router.message(WarrantyForm.city)
 async def step_city(message: Message, state: FSMContext) -> None:
+    if not message.text:
+        await message.answer("Введите название города текстом.")
+        return
     await state.update_data(city=message.text)
     await state.set_state(WarrantyForm.phone)
     await _touch_session_state(message.from_user.id, message.from_user.username, "FORM_PHONE")
@@ -203,7 +207,7 @@ async def step_article(message: Message, state: FSMContext) -> None:
 @router.message(WarrantyForm.screenshot, F.content_type == ContentType.PHOTO)
 async def step_screenshot(message: Message, state: FSMContext) -> None:
     photo = message.photo[-1]
-    media_dir = Path("storage/media")
+    media_dir = Path(get_settings().media_output_dir)
     media_dir.mkdir(parents=True, exist_ok=True)
     path = media_dir / f"{message.from_user.id}_{photo.file_unique_id}.jpg"
     await message.bot.download(photo, destination=path)
@@ -348,7 +352,7 @@ async def correction_photo(message: Message, state: FSMContext) -> None:
         await message.answer("Сейчас редактируется другое поле. Используйте кнопки изменения данных.")
         return
     photo = message.photo[-1]
-    media_dir = Path("storage/media")
+    media_dir = Path(get_settings().media_output_dir)
     media_dir.mkdir(parents=True, exist_ok=True)
     path = media_dir / f"{message.from_user.id}_{photo.file_unique_id}.jpg"
     await message.bot.download(photo, destination=path)
@@ -398,9 +402,18 @@ async def correction_text(message: Message, state: FSMContext) -> None:
             await message.answer("Пожалуйста, выберите категорию кнопкой с клавиатуры.")
             return
 
-        await state.update_data(category=picked["name"], editing_field=None)
-        await state.set_state(WarrantyForm.confirmation)
-        await _send_confirmation_summary(message, state)
+        await state.update_data(
+            category=picked["name"],
+            article=None,
+            product_id=None,
+            product_name=None,
+            editing_field="Артикул",
+        )
+        await message.answer(
+            "Категория изменена. Теперь введите новый артикул для этой категории.\n"
+            "Формат: только цифры.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
         return
 
     if field == "Артикул":
@@ -439,6 +452,15 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
         user = await user_repo.get_or_create(callback.from_user.id, callback.from_user.username)
         support_topic = await support_repo.get_by_user(user.id)
         canonical_topic_id = support_topic.topic_id if support_topic else await app_repo.get_user_moderation_topic_id(user.id)
+        product_id = data.get("product_id")
+        article = data.get("article")
+        if not product_id or not article:
+            await callback.message.answer(
+                "Ошибка: не указан артикул товара. Вернитесь к редактированию и заполните артикул."
+            )
+            await callback.answer()
+            return
+
         edit_id = data.get("editing_application_id")
         if edit_id:
             app = await app_repo.get(edit_id)

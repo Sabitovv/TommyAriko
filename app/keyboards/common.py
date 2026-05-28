@@ -37,22 +37,6 @@ def edit_fields_keyboard(prefix: str = "edit_field") -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def products_keyboard(products: list[dict], page: int, per_page: int = 8) -> InlineKeyboardMarkup:
-    start = page * per_page
-    chunk = products[start : start + per_page]
-    builder = InlineKeyboardBuilder()
-    for p in chunk:
-        builder.button(text=p["name"], callback_data=f"pick_product:{p['id']}")
-    nav = []
-    if page > 0:
-        nav.append(InlineKeyboardButton(text="⬅", callback_data=f"products_page:{page-1}"))
-    if start + per_page < len(products):
-        nav.append(InlineKeyboardButton(text="➡", callback_data=f"products_page:{page+1}"))
-    if nav:
-        builder.row(*nav)
-    return builder.as_markup()
-
-
 def products_reply_keyboard(products: list[dict]) -> ReplyKeyboardMarkup:
     rows = [[KeyboardButton(text=p["name"])] for p in products]
     return ReplyKeyboardMarkup(keyboard=rows, resize_keyboard=True)
