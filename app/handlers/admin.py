@@ -1,3 +1,5 @@
+import logging
+
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -8,6 +10,8 @@ from app.repositories.core import ApplicationRepository
 from app.services.moderation_service import send_approved, send_rejected, send_to_correction
 from app.states.admin import AdminModeration
 
+logger = logging.getLogger(__name__)
+
 router = Router()
 
 
@@ -17,6 +21,10 @@ async def approve(callback: CallbackQuery, state: FSMContext) -> None:
     app_id = int(callback.data.split(":")[-1])
     async with SessionLocal() as db:
         repo = ApplicationRepository(db)
+        app = await repo.get(app_id)
+        if app and app.status not in (ApplicationStatus.PENDING, ApplicationStatus.NEEDS_CORRECTION):
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
         await repo.set_status(app_id, ApplicationStatus.APPROVED)
         app = await repo.get(app_id)
         await db.commit()
@@ -27,7 +35,13 @@ async def approve(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith("mod:reject:"))
 async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     app_id = int(callback.data.split(":")[-1])
+    async with SessionLocal() as db:
+        app = await ApplicationRepository(db).get(app_id)
+        if app and app.status not in (ApplicationStatus.PENDING, ApplicationStatus.NEEDS_CORRECTION):
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
     await state.update_data(reject_app_id=app_id)
     await state.set_state(AdminModeration.reject_reason)
     await callback.message.answer("Введите причину отказа")
@@ -36,23 +50,38 @@ async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(AdminModeration.reject_reason, F.text)
 async def reject_reason(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    app_id = data["reject_app_id"]
-    async with SessionLocal() as db:
-        repo = ApplicationRepository(db)
-        await repo.set_status(app_id, ApplicationStatus.REJECTED, message.text)
-        app = await repo.get(app_id)
-        user_telegram_id = app.user.telegram_id if app and app.user else None
-        await db.commit()
-    if user_telegram_id:
-        await send_rejected(message.bot, user_telegram_id, message.text)
-    await state.clear()
-    await message.answer("Отклонено")
+    try:
+        data = await state.get_data()
+        app_id = data.get("reject_app_id")
+        if not app_id:
+            await state.clear()
+            await message.answer("Ошибка: заявка не найдена. Начните заново.")
+            return
+        async with SessionLocal() as db:
+            repo = ApplicationRepository(db)
+            await repo.set_status(app_id, ApplicationStatus.REJECTED, message.text)
+            app = await repo.get(app_id)
+            user_telegram_id = app.user.telegram_id if app and app.user else None
+            await db.commit()
+        if user_telegram_id:
+            await send_rejected(message.bot, user_telegram_id, message.text)
+        await state.clear()
+        await message.answer("Отклонено")
+    except Exception:
+        logger.exception("reject_reason_failed")
+        await state.clear()
+        await message.answer("Произошла ошибка. Повторите попытку.")
 
 
 @router.callback_query(F.data.startswith("mod:correction:"))
 async def correction_prompt(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     app_id = int(callback.data.split(":")[-1])
+    async with SessionLocal() as db:
+        app = await ApplicationRepository(db).get(app_id)
+        if app and app.status != ApplicationStatus.PENDING:
+            await callback.answer("Заявка уже обработана", show_alert=True)
+            return
     await state.update_data(correction_app_id=app_id)
     await state.set_state(AdminModeration.correction_comment)
     await callback.message.answer("Введите комментарий для исправления")
@@ -61,14 +90,23 @@ async def correction_prompt(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(AdminModeration.correction_comment, F.text)
 async def correction_send(message: Message, state: FSMContext) -> None:
-    data = await state.get_data()
-    app_id = data["correction_app_id"]
-    async with SessionLocal() as db:
-        repo = ApplicationRepository(db)
-        app = await repo.mark_correction_requested(app_id, message.text)
-        user_telegram_id = app.user.telegram_id if app and app.user else None
-        await db.commit()
-    if user_telegram_id:
-        await send_to_correction(message.bot, user_telegram_id, message.text)
-    await state.clear()
-    await message.answer("Запрос на исправление отправлен")
+    try:
+        data = await state.get_data()
+        app_id = data.get("correction_app_id")
+        if not app_id:
+            await state.clear()
+            await message.answer("Ошибка: заявка не найдена. Начните заново.")
+            return
+        async with SessionLocal() as db:
+            repo = ApplicationRepository(db)
+            app = await repo.mark_correction_requested(app_id, message.text)
+            user_telegram_id = app.user.telegram_id if app and app.user else None
+            await db.commit()
+        if user_telegram_id:
+            await send_to_correction(message.bot, user_telegram_id, message.text)
+        await state.clear()
+        await message.answer("Запрос на исправление отправлен")
+    except Exception:
+        logger.exception("correction_send_failed")
+        await state.clear()
+        await message.answer("Произошла ошибка. Повторите попытку.")

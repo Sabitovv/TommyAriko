@@ -242,6 +242,56 @@ async def edit_app(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("corr_edit:"))
+async def correction_edit_field(callback: CallbackQuery, state: FSMContext) -> None:
+    field = callback.data.split(":", 1)[1]
+    async with SessionLocal() as db:
+        user = await UserRepository(db).get_or_create(callback.from_user.id, callback.from_user.username)
+        app = await ApplicationRepository(db).latest_needs_correction_by_user(user.id)
+    if not app:
+        await callback.answer("Заявка не найдена", show_alert=True)
+        return
+    await state.set_state(WarrantyForm.confirmation)
+    await state.update_data(
+        editing_application_id=app.id,
+        full_name=app.customer_full_name,
+        city=app.city,
+        phone=app.phone,
+        product_id=app.product_id,
+        product_name=app.product.name,
+        category=app.product.category,
+        article=app.article,
+        screenshot_file_id=app.screenshot_file_id,
+        screenshot_path=app.screenshot_path,
+        editing_field=field,
+    )
+    await state.set_state(WarrantyForm.correction_field)
+
+    if field == "Категория":
+        async with SessionLocal() as db:
+            rows = await ProductRepository(db).get_deduped_products()
+            categories: dict[str, dict] = {}
+            for p in rows:
+                categories.setdefault(p.category, {"id": p.id, "name": p.category})
+            products = sorted(categories.values(), key=lambda x: x["name"])
+        await state.update_data(products=products)
+        await callback.message.answer(
+            "Выберите новую категорию:",
+            reply_markup=products_reply_keyboard(products),
+        )
+    elif field == "Телефон":
+        await callback.message.answer(
+            "Введите новый номер телефона в формате +79991234567 "
+            "или отправьте контакт кнопкой ниже.",
+            reply_markup=phone_keyboard(),
+        )
+    elif field == "Скриншот":
+        await callback.message.answer("Отправьте новый скриншот отзыва (только изображение).")
+    else:
+        await callback.message.answer(f"Введите новое значение: {field}")
+    await callback.answer()
+
+
 @router.callback_query(WarrantyForm.confirmation, F.data.startswith("edit_field:"))
 async def edit_field(callback: CallbackQuery, state: FSMContext) -> None:
     field = callback.data.split(":", 1)[1]

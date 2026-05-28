@@ -28,11 +28,11 @@ def confirmation_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def edit_fields_keyboard() -> InlineKeyboardMarkup:
+def edit_fields_keyboard(prefix: str = "edit_field") -> InlineKeyboardMarkup:
     fields = ["ФИО", "Город", "Телефон", "Категория", "Артикул", "Скриншот"]
     builder = InlineKeyboardBuilder()
     for field in fields:
-        builder.button(text=field, callback_data=f"edit_field:{field}")
+        builder.button(text=field, callback_data=f"{prefix}:{field}")
     builder.adjust(2)
     return builder.as_markup()
 

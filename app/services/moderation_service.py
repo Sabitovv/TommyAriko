@@ -2,12 +2,10 @@ import logging
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.types import FSInputFile
 
 from app.config import get_settings
-from app.keyboards.common import moderation_keyboard
-from app.keyboards.common import start_keyboard
+from app.keyboards.common import edit_fields_keyboard, moderation_keyboard, start_keyboard
 from app.models.entities import Application
 from app.services.pdf_service import PDFService
 
@@ -79,11 +77,12 @@ async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
 
 
 async def send_to_correction(bot: Bot, user_telegram_id: int, comment: str) -> None:
-    kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="✏ Исправить данные", callback_data="edit_application")]]
-    )
     await bot.send_message(
         user_telegram_id,
         f"Требуется уточнение по заявке.\n\nКомментарий администратора:\n{comment}",
-        reply_markup=kb,
+    )
+    await bot.send_message(
+        user_telegram_id,
+        "Выберите поле для исправления:",
+        reply_markup=edit_fields_keyboard(prefix="corr_edit"),
     )
