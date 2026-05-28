@@ -24,12 +24,15 @@ class _PendingReject(Filter):
             return False
         result = tid in _pending_rejects
         logger.info(
-            "_PendingReject: checking",
+            "_PendingReject: filter check",
             extra={
                 "thread_id": tid,
                 "found": result,
+                "message_text": message.text[:50] if message.text else None,
                 "pending_keys": list(_pending_rejects.keys()),
                 "message_from": message.from_user.id if message.from_user else None,
+                "chat_id": message.chat.id,
+                "message_id": message.message_id,
             }
         )
         return result
@@ -108,23 +111,42 @@ async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(F.chat.id == get_settings().admin_group_id, F.message_thread_id.is_not(None), F.text, _PendingReject())
-async def reject_reason(message: Message) -> None:
+# ГЛАВНОЕ ИЗМЕНЕНИЕ: Обработчик ПЕРЕД всеми фильтрами, чтобы поймать сообщение
+@router.message(F.chat.id == get_settings().admin_group_id, F.message_thread_id.is_not(None), F.text)
+async def reject_reason_or_forward(message: Message) -> None:
+    """
+    Обработчик для сообщений в темах админ-группы.
+    Сначала проверяем, это ли отказ модерации, если нет - передаём дальше.
+    """
     tid = message.message_thread_id
+    
+    # Проверяем, ожидаем ли мы отказ в этой теме
+    if tid not in _pending_rejects:
+        logger.debug(
+            "reject_reason_or_forward: not a rejection reason",
+            extra={
+                "thread_id": tid,
+                "pending_keys": list(_pending_rejects.keys()),
+                "text": message.text[:50] if message.text else None,
+            }
+        )
+        # Не наш обработчик - пусть обработает forward_admin_reply
+        return
+    
+    # ✅ ЭТО ОТКАЗ МОДЕРАЦИИ!
+    app_id = _pending_rejects.pop(tid, None)
     logger.info(
         "reject_reason: handler called",
         extra={
             "thread_id": tid,
+            "app_id": app_id,
             "text_len": len(message.text),
             "from_user": message.from_user.id if message.from_user else None,
         }
     )
     
-    app_id = _pending_rejects.pop(tid, None)
-    logger.info("reject_reason: popped app_id", extra={"thread_id": tid, "app_id": app_id, "remaining": dict(_pending_rejects)})
-    
     if app_id is None:
-        logger.warning("reject_reason: app_id is None, but handler was called (filter passed)", extra={"thread_id": tid})
+        logger.warning("reject_reason: app_id is None", extra={"thread_id": tid})
         return
     
     try:
