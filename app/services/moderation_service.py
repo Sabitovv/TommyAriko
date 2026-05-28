@@ -86,3 +86,27 @@ async def send_to_correction(bot: Bot, user_telegram_id: int, comment: str) -> N
         "Выберите поле для исправления:",
         reply_markup=edit_fields_keyboard(prefix="corr_edit"),
     )
+
+
+async def update_moderation_message(bot: Bot, app: Application, caption: str | None = None) -> None:
+    logger = logging.getLogger(__name__)
+    if not app.moderation_message_id:
+        logger.warning("update_moderation_message: moderation_message_id is None", extra={"app_id": app.id})
+        return
+    try:
+        if caption:
+            await bot.edit_message_caption(
+                chat_id=get_settings().admin_group_id,
+                message_id=app.moderation_message_id,
+                caption=caption,
+                reply_markup=None,
+            )
+        else:
+            await bot.edit_message_reply_markup(
+                chat_id=get_settings().admin_group_id,
+                message_id=app.moderation_message_id,
+                reply_markup=None,
+            )
+        logger.info("update_moderation_message: done", extra={"app_id": app.id, "msg_id": app.moderation_message_id})
+    except TelegramBadRequest as exc:
+        logger.warning("update_moderation_message: TelegramBadRequest", extra={"app_id": app.id, "msg_id": app.moderation_message_id, "exc": str(exc)})

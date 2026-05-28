@@ -1,3 +1,4 @@
+import logging
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 from sqlalchemy import select
@@ -37,12 +38,45 @@ async def forward_user_question(message: Message) -> None:
 
 
 async def forward_admin_reply(message: Message) -> None:
+    logger = logging.getLogger(__name__)
     settings = get_settings()
-    if message.chat.id != settings.admin_group_id or not message.message_thread_id:
+    
+    if message.chat.id != settings.admin_group_id:
+        logger.debug("forward_admin_reply: not admin group", extra={"chat_id": message.chat.id})
         return
+    
+    if not message.message_thread_id:
+        logger.debug("forward_admin_reply: no message_thread_id")
+        return
+    
     async with SessionLocal() as db:
+        # КРИТИЧЕСКАЯ ПРОВЕРКА: это модерация или поддержка?
+        is_moderation = await db.scalar(
+            select(Application.id).where(Application.moderation_topic_id == message.message_thread_id)
+        )
+        
+        if is_moderation:
+            logger.info(
+                "forward_admin_reply: SKIPPED moderation thread",
+                extra={
+                    "thread_id": message.message_thread_id,
+                    "reason": "This is moderation, not support - reject_reason should handle it",
+                }
+            )
+            # ОЧЕНЬ ВАЖНО: не обрабатываем модерацию здесь!
+            # Оставляем it для reject_reason хендлера в admin.py
+            return
+        
+        # Это не модерация, значит поддержка - продолжаем обработку
+        logger.info(
+            "forward_admin_reply: processing support reply",
+            extra={"thread_id": message.message_thread_id}
+        )
+        
         topic = await SupportRepository(db).get_by_topic(message.message_thread_id)
         if not topic:
+            logger.debug("forward_admin_reply: no support topic found", extra={"thread_id": message.message_thread_id})
+            # Пытаемся найти по приложению (fallback)
             app_user_id = await db.scalar(
                 select(Application.user_id)
                 .where(Application.moderation_topic_id == message.message_thread_id)
@@ -50,12 +84,21 @@ async def forward_admin_reply(message: Message) -> None:
                 .limit(1)
             )
             if not app_user_id:
+                logger.debug("forward_admin_reply: no app_user_id found", extra={"thread_id": message.message_thread_id})
                 return
             topic = await SupportRepository(db).get_or_create(app_user_id, message.message_thread_id)
             await db.commit()
+        
         user = await db.get(User, topic.user_id)
+    
     if user:
+        logger.info(
+            "forward_admin_reply: forwarding reply to user",
+            extra={"user_id": user.telegram_id, "thread_id": message.message_thread_id}
+        )
         await message.bot.send_message(user.telegram_id, f"Ответ поддержки:\n{message.text}")
+    else:
+        logger.warning("forward_admin_reply: user not found", extra={"thread_id": message.message_thread_id})
 
 
 async def _resolve_or_create_topic_id(db, message: Message, user_id: int, user_telegram_id: int) -> int:

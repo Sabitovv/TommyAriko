@@ -21,8 +21,14 @@ async def main() -> None:
     dp = Dispatcher(storage=RedisStorage(redis=redis))
     dp.message.middleware(ThrottleMiddleware())
 
-    dp.include_router(user.router)
+    # ВАЖНО: Включить admin router ПЕРЕД регистрацией forward_admin_reply,
+    # чтобы хендлеры модерации (reject_reason) проверялись первыми!
+    # Это гарантирует, что _PendingReject() фильтр сработает до forward_admin_reply
     dp.include_router(admin.router)
+    dp.include_router(user.router)
+    
+    # forward_admin_reply регистрируется ПОСЛЕ, но с более специфичными условиями
+    # Она будет обрабатывать только поддержку, не модерацию
     dp.message.register(
         forward_admin_reply,
         F.chat.id == settings.admin_group_id,
