@@ -128,7 +128,7 @@ async def _to_product_step(message: Message, state: FSMContext, phone: str) -> N
         categories: dict[str, dict] = {}
         for p in rows:
             categories.setdefault(p.category, {"id": p.id, "name": p.category})
-        products = list(categories.values())
+        products = sorted(categories.values(), key=lambda x: x["name"])
     if not products:
         await message.answer(
             "Список товаров пока пуст. Мы синхронизируем товары из WB API. "
@@ -254,7 +254,7 @@ async def edit_field(callback: CallbackQuery, state: FSMContext) -> None:
             categories: dict[str, dict] = {}
             for p in rows:
                 categories.setdefault(p.category, {"id": p.id, "name": p.category})
-            products = list(categories.values())
+            products = sorted(categories.values(), key=lambda x: x["name"])
         await state.update_data(products=products)
         await callback.message.answer(
             "Выберите новую категорию:",
