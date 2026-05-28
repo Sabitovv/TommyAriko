@@ -118,6 +118,7 @@ async def reject_reason_or_forward(message: Message) -> None:
     Обработчик для сообщений в темах админ-группы.
     Сначала проверяем, это ли отказ модерации, если нет - передаём дальше.
     """
+    logger.info("reject_reason_or_forward: HANDLER_CALLED", extra={"thread_id": message.message_thread_id, "pending_keys": list(_pending_rejects.keys())})
     tid = message.message_thread_id
     
     # Проверяем, ожидаем ли мы отказ в этой теме
