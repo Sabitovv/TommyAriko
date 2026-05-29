@@ -500,7 +500,10 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
         app.user = user
         app.product = await ProductRepository(db).get_by_id(data["product_id"])
         await publish_application_for_moderation(callback.bot, app)
-        if app.moderation_topic_id:
+        existing_topic = await support_repo.get_by_user(user.id)
+        if existing_topic and existing_topic.topic_id != app.moderation_topic_id:
+            existing_topic.topic_id = app.moderation_topic_id
+        elif not existing_topic and app.moderation_topic_id:
             await support_repo.set_topic_for_user(user.id, app.moderation_topic_id)
         await db.commit()
 
