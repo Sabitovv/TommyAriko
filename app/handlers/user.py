@@ -550,8 +550,14 @@ async def support_exit_to_menu(message: Message, state: FSMContext) -> None:
 async def support_message(message: Message, state: FSMContext) -> None:
     from app.services.support_service import forward_user_question
 
-    if not message.text:
-        await message.answer("Отправьте текстовый вопрос или нажмите «◀️ В меню».")
+    has_content = any([
+        message.text, message.photo, message.video, message.document,
+        message.audio, message.voice, message.video_note, message.animation,
+    ])
+    if not has_content:
+        await message.answer(
+            "Пожалуйста, отправьте текст, фото, видео, документ или нажмите «◀️ В меню»."
+        )
         return
     await _touch_session_state(message.from_user.id, message.from_user.username, "SUPPORT_CHAT")
     await forward_user_question(message)

@@ -113,18 +113,26 @@ async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
-@router.message(F.chat.id == get_settings().admin_group_id, F.message_thread_id.is_not(None), F.text)
+@router.message(F.chat.id == get_settings().admin_group_id, F.message_thread_id.is_not(None))
 async def reject_reason_or_forward(message: Message) -> None:
     """
-    Обработчик для текстовых сообщений в темах админ-группы.
+    Обработчик для сообщений в темах админ-группы.
     Проверяет _pending_rejects и _pending_corrections.
     Если ни то ни другое — SkipHandler для fallthrough к forward_admin_reply.
     """
     logger.info("admin_message: called", extra={"thread_id": message.message_thread_id})
     tid = message.message_thread_id
-    
+    reason_text = message.text or message.caption or ""
+
     # --- REJECT ---
     if tid in _pending_rejects:
+        if not reason_text:
+            await message.bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=tid,
+                text="Пожалуйста, напишите причину отказа текстом или добавьте подпись к медиа.",
+            )
+            return
         app_id = _pending_rejects.pop(tid, None)
         logger.info("admin_message: handling reject", extra={"thread_id": tid, "app_id": app_id})
         if app_id is None:
@@ -132,15 +140,15 @@ async def reject_reason_or_forward(message: Message) -> None:
         try:
             async with SessionLocal() as db:
                 repo = ApplicationRepository(db)
-                await repo.set_status(app_id, ApplicationStatus.REJECTED, message.text)
+                await repo.set_status(app_id, ApplicationStatus.REJECTED, reason_text)
                 app = await repo.get(app_id)
                 user_telegram_id = app.user.telegram_id if app and app.user else None
                 await db.commit()
             if user_telegram_id:
-                await send_rejected(message.bot, user_telegram_id, message.text)
+                await send_rejected(message.bot, user_telegram_id, reason_text)
             if app:
                 await update_moderation_message(message.bot, app,
-                    f"❌ Отклонено\nЗаявка: {app.number}\nПричина: {message.text}")
+                    f"❌ Отклонено\nЗаявка: {app.number}\nПричина: {reason_text}")
             await message.bot.send_message(
                 chat_id=message.chat.id,
                 message_thread_id=message.message_thread_id,
@@ -154,9 +162,16 @@ async def reject_reason_or_forward(message: Message) -> None:
                 text="❌ Произошла ошибка. Повторите попытку.",
             )
         return
-    
+
     # --- CORRECTION ---
     if tid in _pending_corrections:
+        if not reason_text:
+            await message.bot.send_message(
+                chat_id=message.chat.id,
+                message_thread_id=tid,
+                text="Пожалуйста, напишите комментарий к исправлению текстом или добавьте подпись к медиа.",
+            )
+            return
         app_id = _pending_corrections.pop(tid, None)
         logger.info("admin_message: handling correction", extra={"thread_id": tid, "app_id": app_id})
         if app_id is None:
@@ -164,11 +179,11 @@ async def reject_reason_or_forward(message: Message) -> None:
         try:
             async with SessionLocal() as db:
                 repo = ApplicationRepository(db)
-                app = await repo.mark_correction_requested(app_id, message.text)
+                app = await repo.mark_correction_requested(app_id, reason_text)
                 user_telegram_id = app.user.telegram_id if app and app.user else None
                 await db.commit()
             if user_telegram_id:
-                await send_to_correction(message.bot, user_telegram_id, message.text)
+                await send_to_correction(message.bot, user_telegram_id, reason_text)
             if app:
                 await update_moderation_message(message.bot, app,
                     f"✏ Отправлено на исправление\nЗаявка: {app.number}")
@@ -185,7 +200,7 @@ async def reject_reason_or_forward(message: Message) -> None:
                 text="❌ Произошла ошибка. Повторите попытку.",
             )
         return
-    
+
     # --- НЕ ОТКАЗ И НЕ ИСПРАВЛЕНИЕ → поддержка ---
     logger.debug("admin_message: not reject/correction, raising SkipHandler", extra={"thread_id": tid})
     raise SkipHandler()
