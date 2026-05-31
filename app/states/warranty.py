@@ -9,5 +9,6 @@ class WarrantyForm(StatesGroup):
     article = State()
     screenshot = State()
     confirmation = State()
+    submitting = State()
     correction_field = State()
     support = State()

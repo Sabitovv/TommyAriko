@@ -2,6 +2,7 @@ from pathlib import Path
 import logging
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, ContentType, Message, ReplyKeyboardRemove
@@ -32,6 +33,15 @@ WELCOME = (
     "При активации гарантии важно отвечать точно: неверные данные могут привести к отклонению заявки.\n"
     "⏳ Таймаут на каждом шаге: 30 минут, после чего сессия завершается автоматически."
 )
+
+
+async def _remove_inline_keyboard(callback: CallbackQuery) -> None:
+    if not callback.message:
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
 
 
 async def _send_confirmation_summary(message: Message, state: FSMContext) -> None:
@@ -65,6 +75,7 @@ async def start(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "start_activation")
 async def begin(callback: CallbackQuery, state: FSMContext) -> None:
     logger.info("start_activation_clicked", extra={"user_id": callback.from_user.id})
+    await _remove_inline_keyboard(callback)
     await state.clear()
     await state.set_state(WarrantyForm.full_name)
     await _touch_session_state(callback.from_user.id, callback.from_user.username, "FORM_FULL_NAME")
@@ -224,11 +235,18 @@ async def step_screenshot_invalid(message: Message) -> None:
 
 @router.callback_query(F.data == "edit_application")
 async def edit_app(callback: CallbackQuery, state: FSMContext) -> None:
+    current_state = await state.get_state()
     async with SessionLocal() as db:
         user = await UserRepository(db).get_or_create(callback.from_user.id, callback.from_user.username)
         app = await ApplicationRepository(db).latest_needs_correction_by_user(user.id)
 
-    if app:
+    if current_state != WarrantyForm.confirmation.state and not app:
+        await _remove_inline_keyboard(callback)
+        await callback.answer("Эта кнопка уже неактуальна", show_alert=True)
+        return
+
+    await _remove_inline_keyboard(callback)
+    if app and current_state != WarrantyForm.confirmation.state:
         await state.set_state(WarrantyForm.confirmation)
         await state.update_data(
             editing_application_id=app.id,
@@ -253,8 +271,10 @@ async def correction_edit_field(callback: CallbackQuery, state: FSMContext) -> N
         user = await UserRepository(db).get_or_create(callback.from_user.id, callback.from_user.username)
         app = await ApplicationRepository(db).latest_needs_correction_by_user(user.id)
     if not app:
+        await _remove_inline_keyboard(callback)
         await callback.answer("Заявка не найдена", show_alert=True)
         return
+    await _remove_inline_keyboard(callback)
     await state.set_state(WarrantyForm.confirmation)
     await state.update_data(
         editing_application_id=app.id,
@@ -299,6 +319,7 @@ async def correction_edit_field(callback: CallbackQuery, state: FSMContext) -> N
 @router.callback_query(WarrantyForm.confirmation, F.data.startswith("edit_field:"))
 async def edit_field(callback: CallbackQuery, state: FSMContext) -> None:
     field = callback.data.split(":", 1)[1]
+    await _remove_inline_keyboard(callback)
     await state.update_data(editing_field=field)
     await state.set_state(WarrantyForm.correction_field)
 
@@ -444,6 +465,23 @@ async def correction_text(message: Message, state: FSMContext) -> None:
 @router.callback_query(WarrantyForm.confirmation, F.data == "confirm_application")
 async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
+    if data.get("confirmation_submitted"):
+        await _remove_inline_keyboard(callback)
+        await callback.answer("Заявка уже отправляется", show_alert=True)
+        return
+    product_id = data.get("product_id")
+    article = data.get("article")
+    if not product_id or not article:
+        await _remove_inline_keyboard(callback)
+        await callback.message.answer(
+            "Ошибка: не указан артикул товара. Вернитесь к редактированию и заполните артикул."
+        )
+        await callback.answer()
+        return
+
+    await state.update_data(confirmation_submitted=True)
+    await state.set_state(WarrantyForm.submitting)
+    await _remove_inline_keyboard(callback)
     async with SessionLocal() as db:
         user_repo = UserRepository(db)
         app_repo = ApplicationRepository(db)
@@ -452,14 +490,6 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
         user = await user_repo.get_or_create(callback.from_user.id, callback.from_user.username)
         support_topic = await support_repo.get_by_user(user.id)
         canonical_topic_id = support_topic.topic_id if support_topic else await app_repo.get_user_moderation_topic_id(user.id)
-        product_id = data.get("product_id")
-        article = data.get("article")
-        if not product_id or not article:
-            await callback.message.answer(
-                "Ошибка: не указан артикул товара. Вернитесь к редактированию и заполните артикул."
-            )
-            await callback.answer()
-            return
 
         edit_id = data.get("editing_application_id")
         if edit_id:
@@ -516,8 +546,15 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data.in_({"confirm_application", "edit_application"}) | F.data.startswith("edit_field:"))
+async def stale_form_callback(callback: CallbackQuery) -> None:
+    await _remove_inline_keyboard(callback)
+    await callback.answer("Эта кнопка уже неактуальна", show_alert=True)
+
+
 @router.callback_query(F.data == "ask_question")
 async def ask_question(callback: CallbackQuery, state: FSMContext) -> None:
+    await _remove_inline_keyboard(callback)
     await state.set_state(WarrantyForm.support)
     await _touch_session_state(callback.from_user.id, callback.from_user.username, "SUPPORT_CHAT")
     await callback.message.answer(

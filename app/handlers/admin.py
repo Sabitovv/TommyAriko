@@ -2,6 +2,7 @@ import logging
 
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
@@ -20,6 +21,15 @@ _pending_corrections: dict[int, int] = {}  # thread_id -> app_id
 router = Router()
 
 
+async def _remove_inline_keyboard(callback: CallbackQuery) -> None:
+    if not callback.message:
+        return
+    try:
+        await callback.message.edit_reply_markup(reply_markup=None)
+    except TelegramBadRequest:
+        pass
+
+
 @router.callback_query(F.data.startswith("mod:approve:"))
 async def approve(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
@@ -28,6 +38,7 @@ async def approve(callback: CallbackQuery, state: FSMContext) -> None:
         repo = ApplicationRepository(db)
         app = await repo.get(app_id)
         if app and app.status not in (ApplicationStatus.PENDING, ApplicationStatus.NEEDS_CORRECTION):
+            await _remove_inline_keyboard(callback)
             await callback.answer("Заявка уже обработана", show_alert=True)
             return
         await repo.set_status(app_id, ApplicationStatus.APPROVED)
@@ -51,10 +62,12 @@ async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
             app = await repo.get(app_id)
             if not app:
                 logger.error("reject: app not found", extra={"app_id": app_id})
+                await _remove_inline_keyboard(callback)
                 await callback.answer("Заявка не найдена", show_alert=True)
                 return
             if app.status not in (ApplicationStatus.PENDING, ApplicationStatus.NEEDS_CORRECTION):
                 logger.warning("reject: app already processed", extra={"app_id": app_id, "status": app.status})
+                await _remove_inline_keyboard(callback)
                 await callback.answer("Заявка уже обработана", show_alert=True)
                 return
 
@@ -139,16 +152,21 @@ async def correction_prompt(callback: CallbackQuery) -> None:
     async with SessionLocal() as db:
         app = await ApplicationRepository(db).get(app_id)
         if not app:
+            await _remove_inline_keyboard(callback)
             await callback.answer("Заявка не найдена", show_alert=True)
             return
         if app.status != ApplicationStatus.PENDING:
             logger.warning("correction_prompt: already processed", extra={"app_id": app_id, "status": app.status})
+            await _remove_inline_keyboard(callback)
             await callback.answer("Заявка уже обработана", show_alert=True)
             return
         topic_id = app.moderation_topic_id
     if not topic_id:
         logger.error("correction_prompt: no moderation_topic_id", extra={"app_id": app_id})
         await callback.answer("Ошибка: тема модерации не найдена", show_alert=True)
+        return
+    if topic_id in _pending_corrections:
+        await callback.answer("Комментарий для исправления уже ожидается", show_alert=True)
         return
     _pending_corrections[topic_id] = app_id
     logger.info("correction_prompt: stored", extra={"app_id": app_id, "topic_id": topic_id})
