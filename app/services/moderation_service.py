@@ -72,7 +72,7 @@ async def send_approved(bot: Bot, app: Application) -> None:
         logger.exception("send_approved_failed", extra={"app_id": app.id, "user_id": app.user.telegram_id if app.user else None})
 
 
-async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
+async def send_rejected(bot: Bot, user_telegram_id: int) -> None:
     logger = logging.getLogger(__name__)
     try:
         await bot.send_message(
