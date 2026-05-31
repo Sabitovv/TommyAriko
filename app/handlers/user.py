@@ -2,7 +2,7 @@ from pathlib import Path
 import logging
 
 from aiogram import F, Router
-from aiogram.filters import CommandStart
+from aiogram.filters import CommandStart, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, ContentType, Message, ReplyKeyboardRemove
 
@@ -537,6 +537,41 @@ async def ask_question_text(message: Message, state: FSMContext) -> None:
         "Чтобы выйти, нажмите «◀️ В меню».",
         reply_markup=support_chat_keyboard(),
     )
+
+
+@router.message(StateFilter(None))
+async def auto_support_message(message: Message, state: FSMContext) -> None:
+    text = message.text or message.caption or ""
+    if text.startswith("/"):
+        return
+
+    async with SessionLocal() as db:
+        user_repo = UserRepository(db)
+        support_repo = SupportRepository(db)
+        user = await user_repo.get_or_create(message.from_user.id, message.from_user.username)
+        topic = await support_repo.get_by_user(user.id)
+
+    if not topic:
+        await message.answer("Нажмите «Задать вопрос» чтобы написать в поддержку.")
+        return
+
+    await state.set_state(WarrantyForm.support)
+    await _touch_session_state(message.from_user.id, message.from_user.username, "SUPPORT_CHAT")
+
+    from app.services.support_service import forward_user_question
+
+    has_content = any([
+        message.text, message.photo, message.video, message.document,
+        message.audio, message.voice, message.video_note, message.animation,
+    ])
+    if not has_content:
+        await message.answer(
+            "Пожалуйста, отправьте текст, фото, видео, документ или нажмите «◀️ В меню»."
+        )
+        return
+
+    await forward_user_question(message)
+    await message.answer("Ваш вопрос передан в поддержку. Можете отправить следующий вопрос.")
 
 
 @router.message(WarrantyForm.support, F.text == "◀️ В меню")
