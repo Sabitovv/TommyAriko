@@ -1,10 +1,14 @@
+import csv
 import logging
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from aiogram import F, Router
 from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, FSInputFile, Message
 
 from app.config import get_settings
 from app.db import SessionLocal
@@ -21,6 +25,17 @@ _pending_corrections: dict[int, int] = {}  # thread_id -> app_id
 router = Router()
 
 
+REPORT_HEADERS = [
+    "имя",
+    "номер телефона",
+    "город",
+    "что приобрели",
+    "артикул товара",
+    "ссылка на скриншот отзыв",
+    "Дата оставления отзыва",
+]
+
+
 async def _remove_inline_keyboard(callback: CallbackQuery) -> None:
     if not callback.message:
         return
@@ -28,6 +43,72 @@ async def _remove_inline_keyboard(callback: CallbackQuery) -> None:
         await callback.message.edit_reply_markup(reply_markup=None)
     except TelegramBadRequest:
         pass
+
+
+def _screenshot_link(topic_id: int | None, message_id: int | None) -> str:
+    if not message_id:
+        return ""
+    internal_chat_id = str(abs(get_settings().admin_group_id))
+    if internal_chat_id.startswith("100"):
+        internal_chat_id = internal_chat_id[3:]
+    if topic_id:
+        return f"https://t.me/c/{internal_chat_id}/{topic_id}/{message_id}"
+    return f"https://t.me/c/{internal_chat_id}/{message_id}"
+
+
+async def _is_report_allowed(message: Message) -> bool:
+    settings = get_settings()
+    if message.chat.id == settings.admin_group_id:
+        return True
+    if not message.from_user:
+        return False
+    try:
+        member = await message.bot.get_chat_member(settings.admin_group_id, message.from_user.id)
+    except TelegramBadRequest:
+        return False
+    return member.status in {"creator", "administrator"}
+
+
+@router.message(Command("data", "report", "csv"))
+async def send_applications_report(message: Message) -> None:
+    if not await _is_report_allowed(message):
+        await message.answer("Команда доступна только администраторам.")
+        return
+
+    async with SessionLocal() as db:
+        applications = await ApplicationRepository(db).list_for_report()
+
+    if not applications:
+        await message.answer("Заявок для отчёта пока нет.")
+        return
+
+    with NamedTemporaryFile("w", encoding="utf-8-sig", newline="", suffix=".csv", delete=False) as tmp:
+        path = Path(tmp.name)
+        writer = csv.DictWriter(tmp, fieldnames=REPORT_HEADERS)
+        writer.writeheader()
+        for app in applications:
+            writer.writerow(
+                {
+                    "имя": app.customer_full_name,
+                    "номер телефона": app.phone,
+                    "город": app.city,
+                    "что приобрели": app.product.name if app.product else "",
+                    "артикул товара": app.article,
+                    "ссылка на скриншот отзыв": _screenshot_link(
+                        app.moderation_topic_id,
+                        app.moderation_message_id,
+                    ),
+                    "Дата оставления отзыва": app.created_at.strftime("%Y-%m-%d %H:%M:%S") if app.created_at else "",
+                }
+            )
+
+    try:
+        await message.answer_document(
+            FSInputFile(path, filename="applications_report.csv"),
+            caption=f"Отчёт по заявкам: {len(applications)}",
+        )
+    finally:
+        path.unlink(missing_ok=True)
 
 
 @router.callback_query(F.data.startswith("mod:approve:"))

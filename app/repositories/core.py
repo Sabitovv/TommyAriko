@@ -140,6 +140,15 @@ class ApplicationRepository:
             .where(Application.id == app_id)
         )
 
+    async def list_for_report(self) -> list[Application]:
+        return (
+            await self.db.scalars(
+                select(Application)
+                .options(selectinload(Application.user), selectinload(Application.product))
+                .order_by(Application.created_at.desc(), Application.id.desc())
+            )
+        ).all()
+
     async def mark_correction_requested(self, app_id: int, comment: str) -> Application | None:
         app = await self.get(app_id)
         if not app:
