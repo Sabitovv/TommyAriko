@@ -77,8 +77,9 @@ async def send_rejected(bot: Bot, user_telegram_id: int) -> None:
     try:
         await bot.send_message(
             user_telegram_id,
-            "🖼️ 🔶 Загрузите скриншот отзыва\n"
-            "Оставьте отзыв о товаре на Wildberries и отправьте скриншот.\n"
+            "❌ В активации гарантии отказано.\n\n"
+            "Нужно заменить изображение на скриншот вашего отзыва о товаре на Wildberries.\n"
+            "Оставьте отзыв на Wildberries и отправьте скриншот отзыва.\n"
             "Принимается только изображение.",
         )
     except Exception:
