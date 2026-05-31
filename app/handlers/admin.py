@@ -58,8 +58,6 @@ def _screenshot_link(topic_id: int | None, message_id: int | None) -> str:
 
 async def _is_report_allowed(message: Message) -> bool:
     settings = get_settings()
-    if message.chat.id == settings.admin_group_id:
-        return True
     if not message.from_user:
         return False
     try:
@@ -67,6 +65,13 @@ async def _is_report_allowed(message: Message) -> bool:
     except TelegramBadRequest:
         return False
     return member.status in {"creator", "administrator"}
+
+
+def _csv_value(value: object) -> str:
+    text = "" if value is None else str(value)
+    if text.startswith(("=", "+", "-", "@")):
+        return "'" + text
+    return text
 
 
 @router.message(Command("data", "report", "csv"))
@@ -89,16 +94,18 @@ async def send_applications_report(message: Message) -> None:
         for app in applications:
             writer.writerow(
                 {
-                    "имя": app.customer_full_name,
-                    "номер телефона": app.phone,
-                    "город": app.city,
-                    "что приобрели": app.product.name if app.product else "",
-                    "артикул товара": app.article,
-                    "ссылка на скриншот отзыв": _screenshot_link(
+                    "имя": _csv_value(app.customer_full_name),
+                    "номер телефона": _csv_value(app.phone),
+                    "город": _csv_value(app.city),
+                    "что приобрели": _csv_value(app.product.name if app.product else ""),
+                    "артикул товара": _csv_value(app.article),
+                    "ссылка на скриншот отзыв": _csv_value(_screenshot_link(
                         app.moderation_topic_id,
                         app.moderation_message_id,
+                    )),
+                    "Дата оставления отзыва": _csv_value(
+                        app.created_at.strftime("%Y-%m-%d %H:%M:%S") if app.created_at else ""
                     ),
-                    "Дата оставления отзыва": app.created_at.strftime("%Y-%m-%d %H:%M:%S") if app.created_at else "",
                 }
             )
 
