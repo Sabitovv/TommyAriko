@@ -75,7 +75,12 @@ async def send_approved(bot: Bot, app: Application) -> None:
 async def send_rejected(bot: Bot, user_telegram_id: int, reason: str) -> None:
     logger = logging.getLogger(__name__)
     try:
-        await bot.send_message(user_telegram_id, f"❌ В активации гарантии отказано.\n\nПричина:\n{reason}")
+        await bot.send_message(
+            user_telegram_id,
+            "🖼️ 🔶 Загрузите скриншот отзыва\n"
+            "Оставьте отзыв о товаре на Wildberries и отправьте скриншот.\n"
+            "Принимается только изображение.",
+        )
     except Exception:
         logger.exception("send_rejected_failed", extra={"user_id": user_telegram_id})
 
