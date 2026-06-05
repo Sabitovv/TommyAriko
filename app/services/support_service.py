@@ -13,6 +13,32 @@ from app.repositories.core import ApplicationRepository, SupportRepository, User
 logger = logging.getLogger(__name__)
 
 
+def _display_name(message: Message) -> str:
+    if not message.from_user:
+        return "Пользователь"
+    if message.from_user.username:
+        return f"@{message.from_user.username}"
+    return message.from_user.full_name or "Пользователь"
+
+
+def _topic_name(message: Message, user_telegram_id: int) -> str:
+    name = _display_name(message)
+    if name.startswith("@"):
+        name = name[1:]
+    return name[:120] or f"user_{user_telegram_id}"
+
+
+async def _rename_topic(message: Message, topic_id: int, name: str) -> None:
+    try:
+        await message.bot.edit_forum_topic(
+            chat_id=get_settings().admin_group_id,
+            message_thread_id=topic_id,
+            name=name,
+        )
+    except TelegramBadRequest:
+        logger.exception("rename_support_topic_failed", extra={"topic_id": topic_id})
+
+
 async def _forward_message(
     bot: Bot,
     chat_id: int,
@@ -55,7 +81,7 @@ async def forward_user_question(message: Message) -> None:
         user = await UserRepository(db).get_or_create(message.from_user.id, message.from_user.username)
         topic_id = await _resolve_or_create_topic_id(db, message, user.id, user.telegram_id)
 
-    prefix = f"Вопрос от @{message.from_user.username or 'user'} ({message.from_user.id})"
+    prefix = f"Вопрос от {_display_name(message)}"
     try:
         await _forward_message(
             message.bot, settings.admin_group_id, message, prefix,
@@ -116,15 +142,18 @@ async def forward_admin_reply(message: Message) -> None:
 async def _resolve_or_create_topic_id(db, message: Message, user_id: int, user_telegram_id: int) -> int:
     repo = SupportRepository(db)
     app_repo = ApplicationRepository(db)
+    topic_name = _topic_name(message, user_telegram_id)
 
     topic = await repo.get_by_user(user_id)
     if topic:
+        await _rename_topic(message, topic.topic_id, topic_name)
         return topic.topic_id
 
     existing_topic_id = await app_repo.get_user_moderation_topic_id(user_id)
     if existing_topic_id:
         topic = await repo.set_topic_for_user(user_id, existing_topic_id)
         await db.commit()
+        await _rename_topic(message, topic.topic_id, topic_name)
         return topic.topic_id
 
     return await _force_create_topic_id(db, message, user_id, user_telegram_id)
@@ -132,10 +161,9 @@ async def _resolve_or_create_topic_id(db, message: Message, user_id: int, user_t
 
 async def _force_create_topic_id(db, message: Message, user_id: int, user_telegram_id: int) -> int:
     settings = get_settings()
-    username = message.from_user.username if message.from_user else None
     created = await message.bot.create_forum_topic(
         chat_id=settings.admin_group_id,
-        name=f"{username or 'tg'}_{user_telegram_id}",
+        name=_topic_name(message, user_telegram_id),
     )
     topic = await SupportRepository(db).set_topic_for_user(user_id, created.message_thread_id)
     await db.commit()

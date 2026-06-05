@@ -10,14 +10,38 @@ from app.models.entities import Application
 from app.services.pdf_service import PDFService
 
 
+def _application_topic_name(app: Application) -> str:
+    if app.user and app.user.username:
+        return app.user.username[:120]
+    return (app.customer_full_name or "Пользователь")[:120]
+
+
+async def _rename_application_topic(bot: Bot, app: Application) -> None:
+    if not app.moderation_topic_id:
+        return
+    try:
+        await bot.edit_forum_topic(
+            chat_id=get_settings().admin_group_id,
+            message_thread_id=app.moderation_topic_id,
+            name=_application_topic_name(app),
+        )
+    except TelegramBadRequest:
+        logging.getLogger(__name__).exception(
+            "rename_moderation_topic_failed",
+            extra={"app_id": app.id, "topic_id": app.moderation_topic_id},
+        )
+
+
 async def publish_application_for_moderation(bot: Bot, app: Application) -> None:
     settings = get_settings()
     if not app.moderation_topic_id:
         topic = await bot.create_forum_topic(
             chat_id=settings.admin_group_id,
-            name=f"{app.user.username or 'user'}_{app.user.telegram_id}",
+            name=_application_topic_name(app),
         )
         app.moderation_topic_id = topic.message_thread_id
+    else:
+        await _rename_application_topic(bot, app)
 
     caption = (
         f"Заявка: {app.number}\n"
@@ -44,7 +68,7 @@ async def publish_application_for_moderation(bot: Bot, app: Application) -> None
             raise
         topic = await bot.create_forum_topic(
             chat_id=settings.admin_group_id,
-            name=f"{app.user.username or 'user'}_{app.user.telegram_id}",
+            name=_application_topic_name(app),
         )
         app.moderation_topic_id = topic.message_thread_id
         msg = await bot.send_photo(
