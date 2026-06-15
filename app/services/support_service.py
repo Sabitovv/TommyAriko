@@ -156,7 +156,11 @@ async def forward_admin_reply(message: Message) -> None:
             if topic:
                 user = await db.get(User, topic.user_id)
             else:
-                logger.debug("forward_admin_reply: no support topic found")
+                logger.warning(
+                    "forward_admin_reply: no support topic found",
+                    extra={"thread_id": message.message_thread_id},
+                )
+                await _warn_unmapped_topic(message)
                 return
 
     if user:
@@ -164,9 +168,34 @@ async def forward_admin_reply(message: Message) -> None:
             "forward_admin_reply: forwarding reply to user",
             extra={"user_id": user.telegram_id, "thread_id": message.message_thread_id},
         )
-        await _forward_message(message.bot, user.telegram_id, message, prefix)
+        try:
+            await _forward_message(message.bot, user.telegram_id, message, prefix)
+        except TelegramBadRequest:
+            logger.exception(
+                "forward_admin_reply: delivery failed",
+                extra={"user_id": user.telegram_id, "thread_id": message.message_thread_id},
+            )
+            await _warn_unmapped_topic(message, reason="не удалось доставить сообщение клиенту")
     else:
         logger.warning("forward_admin_reply: user not found", extra={"thread_id": message.message_thread_id})
+        await _warn_unmapped_topic(message)
+
+
+async def _warn_unmapped_topic(message: Message, reason: str | None = None) -> None:
+    """Сообщает админам прямо в теме, что ответ не ушёл клиенту (тема рассинхронизирована)."""
+    text = (
+        "⚠️ Ответ не доставлен клиенту: "
+        + (reason or "эта тема не привязана к клиенту (вероятно, была пересоздана).")
+        + "\nПопросите клиента написать в бот заново — создастся рабочая тема."
+    )
+    try:
+        await message.bot.send_message(
+            chat_id=get_settings().admin_group_id,
+            message_thread_id=message.message_thread_id,
+            text=text,
+        )
+    except TelegramBadRequest:
+        logger.exception("warn_unmapped_topic_failed", extra={"thread_id": message.message_thread_id})
 
 
 async def _resolve_or_create_topic_id(db, message: Message, user_id: int, user_telegram_id: int) -> int:
