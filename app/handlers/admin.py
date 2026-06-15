@@ -4,7 +4,6 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from aiogram import F, Router
-from aiogram.dispatcher.event.bases import SkipHandler
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -15,6 +14,7 @@ from app.db import SessionLocal
 from app.models.entities import ApplicationStatus
 from app.repositories.core import ApplicationRepository
 from app.services.moderation_service import update_moderation_message, send_approved, send_rejected, send_to_correction
+from app.services.support_service import forward_admin_reply
 
 
 logger = logging.getLogger(__name__)
@@ -183,8 +183,8 @@ async def reject_prompt(callback: CallbackQuery, state: FSMContext) -> None:
 async def reject_reason_or_forward(message: Message) -> None:
     """
     Обработчик для сообщений в темах админ-группы.
-    Проверяет _pending_corrections.
-    Если исправление не ожидается — SkipHandler для fallthrough к forward_admin_reply.
+    Проверяет _pending_corrections. Если исправление не ожидается —
+    напрямую вызывает forward_admin_reply, чтобы переслать ответ клиенту.
     """
     logger.info("admin_message: called", extra={"thread_id": message.message_thread_id})
     tid = message.message_thread_id
@@ -228,9 +228,9 @@ async def reject_reason_or_forward(message: Message) -> None:
             )
         return
 
-    # --- НЕ ИСПРАВЛЕНИЕ → поддержка ---
-    logger.debug("admin_message: not reject/correction, raising SkipHandler", extra={"thread_id": tid})
-    raise SkipHandler()
+    # --- НЕ ИСПРАВЛЕНИЕ → пересылаем ответ клиенту напрямую ---
+    logger.info("admin_message: forwarding to client", extra={"thread_id": tid})
+    await forward_admin_reply(message)
 
 
 @router.callback_query(F.data.startswith("mod:correction:"))

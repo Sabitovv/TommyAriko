@@ -1,7 +1,6 @@
 import asyncio
 
 from aiogram import Bot, Dispatcher
-from aiogram import F
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 
@@ -10,7 +9,6 @@ from app.handlers import admin, user
 from app.logging import setup_logging
 from app.middlewares.throttle import ThrottleMiddleware
 from app.services.scheduler_service import build_scheduler
-from app.services.support_service import forward_admin_reply
 
 
 async def main() -> None:
@@ -24,15 +22,8 @@ async def main() -> None:
     dp.include_router(admin.router)
     dp.include_router(user.router)
 
-    # forward_admin_reply регистрируется НА admin.router, а не на dp.message,
-    # чтобы reject_reason_or_forward (декоратор в admin.py) проверялся ПЕРВЫМ
-    # внутри одного observer. Если обработчик отказов не подходит — он кидает
-    # SkipHandler, и тогда forward_admin_reply обрабатывает сообщение как поддержку.
-    admin.router.message.register(
-        forward_admin_reply,
-        F.chat.id == settings.admin_group_id,
-        F.message_thread_id.is_not(None),
-    )
+    # Ответы админов в темах обрабатывает reject_reason_or_forward в admin.py:
+    # он сам вызывает forward_admin_reply для пересылки клиенту (без SkipHandler).
 
     scheduler = build_scheduler(bot)
     scheduler.start()
