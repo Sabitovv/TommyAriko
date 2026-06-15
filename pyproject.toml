@@ -1,0 +1,12 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["app", "migrations"]
+extend-exclude = ["migrations/versions", "storage", "assets"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"

@@ -22,10 +22,40 @@ def _display_name(message: Message) -> str:
 
 
 def _topic_name(message: Message, user_telegram_id: int) -> str:
-    name = _display_name(message)
-    if name.startswith("@"):
-        name = name[1:]
-    return name[:120] or f"user_{user_telegram_id}"
+    """Имя топика = только имя клиента (без @username и без цифровых id)."""
+    u = message.from_user
+    if u and u.full_name and u.full_name.strip():
+        return u.full_name.strip()[:120]
+    if u and u.username:
+        return u.username[:120]
+    return "Клиент"
+
+
+async def _post_client_avatar(
+    bot: Bot,
+    chat_id: int,
+    topic_id: int,
+    user_telegram_id: int,
+    caption: str | None = None,
+) -> None:
+    """Публикует аватарку клиента первым сообщением в топике (иконку топика Telegram
+    не позволяет задать произвольным фото, поэтому шлём аватар как фото в тему)."""
+    try:
+        photos = await bot.get_user_profile_photos(user_telegram_id, limit=1)
+    except TelegramBadRequest:
+        return
+    if not photos.total_count or not photos.photos or not photos.photos[0]:
+        return
+    file_id = photos.photos[0][-1].file_id
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            message_thread_id=topic_id,
+            photo=file_id,
+            caption=caption,
+        )
+    except TelegramBadRequest:
+        logger.exception("post_client_avatar_failed", extra={"topic_id": topic_id})
 
 
 async def _rename_topic(message: Message, topic_id: int, name: str) -> None:
@@ -161,10 +191,15 @@ async def _resolve_or_create_topic_id(db, message: Message, user_id: int, user_t
 
 async def _force_create_topic_id(db, message: Message, user_id: int, user_telegram_id: int) -> int:
     settings = get_settings()
+    name = _topic_name(message, user_telegram_id)
     created = await message.bot.create_forum_topic(
         chat_id=settings.admin_group_id,
-        name=_topic_name(message, user_telegram_id),
+        name=name,
     )
     topic = await SupportRepository(db).set_topic_for_user(user_id, created.message_thread_id)
     await db.commit()
+    await _post_client_avatar(
+        message.bot, settings.admin_group_id, created.message_thread_id, user_telegram_id,
+        caption=f"👤 {name}",
+    )
     return topic.topic_id

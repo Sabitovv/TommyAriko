@@ -80,6 +80,17 @@ class ApplicationRepository:
             .limit(1)
         )
 
+    async def has_approved_by_user(self, user_id: int) -> bool:
+        result = await self.db.scalar(
+            select(Application.id)
+            .where(
+                Application.user_id == user_id,
+                Application.status == ApplicationStatus.APPROVED,
+            )
+            .limit(1)
+        )
+        return result is not None
+
     async def get_user_moderation_topic_id(self, user_id: int) -> int | None:
         return await self.db.scalar(
             select(Application.moderation_topic_id)

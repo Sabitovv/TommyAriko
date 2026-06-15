@@ -2,13 +2,11 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardBu
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 
-def start_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="▶ Начать активацию", callback_data="start_activation")],
-            [InlineKeyboardButton(text="💬 Задать вопрос", callback_data="ask_question")],
-        ]
-    )
+def start_keyboard(show_support: bool = False) -> InlineKeyboardMarkup:
+    rows = [[InlineKeyboardButton(text="▶ Начать активацию", callback_data="start_activation")]]
+    if show_support:
+        rows.append([InlineKeyboardButton(text="💬 Задать вопрос", callback_data="ask_question")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def phone_keyboard() -> ReplyKeyboardMarkup:
@@ -54,6 +52,5 @@ def moderation_keyboard(app_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"mod:approve:{app_id}")],
             [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"mod:reject:{app_id}")],
-            [InlineKeyboardButton(text="✏ Запросить исправление", callback_data=f"mod:correction:{app_id}")],
         ]
     )

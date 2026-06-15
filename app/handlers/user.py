@@ -27,11 +27,17 @@ logger = logging.getLogger(__name__)
 
 WELCOME = (
     "👋 Добро пожаловать!\n\n"
-    "Выберите действие на клавиатуре ниже:\n"
-    "• `▶ Начать активацию` — оформить гарантию\n"
-    "• `💬 Задать вопрос` — написать в поддержку\n\n"
+    "Сначала оформите гарантию на приобретённый товар:\n"
+    "• `▶ Начать активацию` — оформить гарантию\n\n"
+    "💬 Кнопка «Задать вопрос» в поддержку появится после того, как ваша гарантия будет одобрена.\n"
+    "Пока заявка на модерации, вы можете подать ещё одну активацию.\n\n"
     "При активации гарантии важно отвечать точно: неверные данные могут привести к отклонению заявки.\n"
     "⏳ Таймаут на каждом шаге: 30 минут, после чего сессия завершается автоматически."
+)
+
+SUPPORT_LOCKED = (
+    "💬 Чат с поддержкой станет доступен после одобрения вашей гарантии.\n"
+    "Пожалуйста, дождитесь решения по заявке. Пока вы можете оформить ещё одну активацию."
 )
 
 
@@ -64,6 +70,12 @@ async def _touch_session_state(telegram_id: int, username: str | None, state_nam
         user = await UserRepository(db).get_or_create(telegram_id, username)
         await SessionRepository(db).touch(user.id, state_name)
         await db.commit()
+
+
+async def _user_can_ask_question(telegram_id: int, username: str | None) -> bool:
+    async with SessionLocal() as db:
+        user = await UserRepository(db).get_or_create(telegram_id, username)
+        return await ApplicationRepository(db).has_approved_by_user(user.id)
 
 
 @router.message(CommandStart())
@@ -539,7 +551,8 @@ async def confirm(callback: CallbackQuery, state: FSMContext) -> None:
 
     await callback.message.answer(f"Заявка {app.number} отправлена на модерацию.")
     await callback.message.answer(
-        "Если хотите, можете сразу начать новую активацию или написать в поддержку.",
+        "Пока заявка на модерации, вы можете подать ещё одну активацию.\n"
+        "💬 Кнопка «Задать вопрос» появится после одобрения гарантии.",
         reply_markup=start_keyboard(),
     )
     await state.clear()
@@ -555,6 +568,10 @@ async def stale_form_callback(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "ask_question")
 async def ask_question(callback: CallbackQuery, state: FSMContext) -> None:
     await _remove_inline_keyboard(callback)
+    if not await _user_can_ask_question(callback.from_user.id, callback.from_user.username):
+        await callback.message.answer(SUPPORT_LOCKED, reply_markup=start_keyboard(show_support=False))
+        await callback.answer("Сначала нужно одобрение гарантии", show_alert=True)
+        return
     await state.set_state(WarrantyForm.support)
     await _touch_session_state(callback.from_user.id, callback.from_user.username, "SUPPORT_CHAT")
     await callback.message.answer(
@@ -567,6 +584,9 @@ async def ask_question(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.message(F.text.contains("Задать вопрос"))
 async def ask_question_text(message: Message, state: FSMContext) -> None:
+    if not await _user_can_ask_question(message.from_user.id, message.from_user.username):
+        await message.answer(SUPPORT_LOCKED, reply_markup=start_keyboard(show_support=False))
+        return
     await state.set_state(WarrantyForm.support)
     await _touch_session_state(message.from_user.id, message.from_user.username, "SUPPORT_CHAT")
     await message.answer(
@@ -587,6 +607,11 @@ async def auto_support_message(message: Message, state: FSMContext) -> None:
         support_repo = SupportRepository(db)
         user = await user_repo.get_or_create(message.from_user.id, message.from_user.username)
         topic = await support_repo.get_by_user(user.id)
+        can_ask = await ApplicationRepository(db).has_approved_by_user(user.id)
+
+    if not can_ask:
+        await message.answer(SUPPORT_LOCKED, reply_markup=start_keyboard(show_support=False))
+        return
 
     if not topic:
         await message.answer("Нажмите «Задать вопрос» чтобы написать в поддержку.")

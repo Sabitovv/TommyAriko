@@ -36,7 +36,9 @@ def build_scheduler(bot):
                         user.telegram_id,
                         "⌛ Время ожидания истекло.\nДля продолжения начните заново.",
                     )
-                    await bot.send_message(user.telegram_id, WELCOME, reply_markup=start_keyboard())
+                    await bot.send_message(
+                        user.telegram_id, WELCOME, reply_markup=start_keyboard()
+                    )
             await db.commit()
 
     @scheduler.scheduled_job("interval", minutes=30, next_run_time=datetime.now())

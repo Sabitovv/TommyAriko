@@ -8,12 +8,31 @@ from app.config import get_settings
 from app.keyboards.common import edit_fields_keyboard, moderation_keyboard, start_keyboard
 from app.models.entities import Application
 from app.services.pdf_service import PDFService
+from app.services.support_service import _post_client_avatar
 
 
 def _application_topic_name(app: Application) -> str:
-    if app.user and app.user.username:
-        return app.user.username[:120]
-    return (app.customer_full_name or "Пользователь")[:120]
+    """Имя топика = @username клиента, а если ника нет — ФИО из заявки."""
+    username = (app.user.username if app.user else None) or ""
+    username = username.strip().lstrip("@")
+    if username:
+        return f"@{username}"[:120]
+    name = (app.customer_full_name or "").strip()
+    if name:
+        return name[:120]
+    return "Клиент"
+
+
+async def _post_application_avatar(bot: Bot, app: Application) -> None:
+    if not app.user or not app.moderation_topic_id:
+        return
+    await _post_client_avatar(
+        bot,
+        get_settings().admin_group_id,
+        app.moderation_topic_id,
+        app.user.telegram_id,
+        caption=f"👤 {_application_topic_name(app)}",
+    )
 
 
 async def _rename_application_topic(bot: Bot, app: Application) -> None:
@@ -25,7 +44,10 @@ async def _rename_application_topic(bot: Bot, app: Application) -> None:
             message_thread_id=app.moderation_topic_id,
             name=_application_topic_name(app),
         )
-    except TelegramBadRequest:
+    except TelegramBadRequest as exc:
+        # Имя топика не изменилось (та же @username) — это не ошибка, пропускаем тихо.
+        if "not_modified" in (exc.message or "").lower():
+            return
         logging.getLogger(__name__).exception(
             "rename_moderation_topic_failed",
             extra={"app_id": app.id, "topic_id": app.moderation_topic_id},
@@ -40,6 +62,7 @@ async def publish_application_for_moderation(bot: Bot, app: Application) -> None
             name=_application_topic_name(app),
         )
         app.moderation_topic_id = topic.message_thread_id
+        await _post_application_avatar(bot, app)
     else:
         await _rename_application_topic(bot, app)
 
@@ -71,6 +94,7 @@ async def publish_application_for_moderation(bot: Bot, app: Application) -> None
             name=_application_topic_name(app),
         )
         app.moderation_topic_id = topic.message_thread_id
+        await _post_application_avatar(bot, app)
         msg = await bot.send_photo(
             chat_id=settings.admin_group_id,
             message_thread_id=app.moderation_topic_id,
@@ -90,7 +114,7 @@ async def send_approved(bot: Bot, app: Application) -> None:
         await bot.send_message(
             app.user.telegram_id,
             "Можно начать новую активацию или задать вопрос в поддержку.",
-            reply_markup=start_keyboard(),
+            reply_markup=start_keyboard(show_support=True),
         )
     except Exception:
         logger.exception("send_approved_failed", extra={"app_id": app.id, "user_id": app.user.telegram_id if app.user else None})
@@ -105,6 +129,11 @@ async def send_rejected(bot: Bot, user_telegram_id: int) -> None:
             "Нужно заменить изображение на скриншот вашего отзыва о товаре на Wildberries.\n"
             "Оставьте отзыв на Wildberries и отправьте скриншот отзыва.\n"
             "Принимается только изображение.",
+        )
+        await bot.send_message(
+            user_telegram_id,
+            "Когда будете готовы, нажмите «▶ Начать активацию» и подайте заявку заново.",
+            reply_markup=start_keyboard(),
         )
     except Exception:
         logger.exception("send_rejected_failed", extra={"user_id": user_telegram_id})
